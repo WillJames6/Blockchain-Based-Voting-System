@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Voting DApp</title>
+  <!-- Including Web3.js library for interacting with the Ethereum blockchain -->
+  <script src="https://cdn.jsdelivr.net/npm/web3@1.10.0/dist/web3.min.js"></script>
+  <style>
+    /* Styling for the page elements */
+    body {
+      font-family: Arial, sans-serif;
+      background: #f9f9f9;
+      color: #333;
+      margin: 0;
+      padding: 20px;
+    }
+    h2, h3 {
+      color: #2c3e50;
+    }
+    input, select, button {
+      margin: 10px 0;
+      padding: 10px;
+      font-size: 1em;
+      width: 100%;
+      max-width: 400px;
+    }
+    button {
+      background-color: #3498db;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #2980b9;
+    }
+    .hidden { display: none; }
+    #loginPage, #registerPage, #voterSection, #adminSection {
+      max-width: 500px;
+      margin: auto;
+      padding: 30px;
+      background: white;
+      border-radius: 10px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    a {
+      color: #3498db;
+      cursor: pointer;
+    }
+    #unverifiedUsers div {
+      margin-bottom: 10px;
+      padding: 10px;
+      background: #ecf0f1;
+      border-radius: 5px;
+    }
+  </style>
+  <!-- Including emailjs for sending emails with results -->
+  <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
+  <script>
+    // Initializing emailjs with user ID
+    (function(){
+      emailjs.init("EsKdWFHz4K9c37yXR");
+    })();
+  </script>
+</head>
+<body>
+
+  <!-- Login Page -->
+  <div id="loginPage">
+    <h2>Voter Login</h2>
+    <input type="text" id="loginUsername" placeholder="Username" />
+    <input type="password" id="loginPassword" placeholder="Password" />
+    <button onclick="loginUser()">Login</button>
+    <p>Don't have an account? <a onclick="showRegister()">Register here</a></p>
+
+    <hr>
+    <h3>Admin Login</h3>
+    <input type="text" id="adminAddress" placeholder="Enter admin address" />
+    <button onclick="loginAdmin()">Login as Admin</button>
+  </div>
+
+  <!-- Register Page -->
+  <div id="registerPage" class="hidden">
+    <h2>Register as Voter</h2>
+    <input type="text" id="regUsername" placeholder="Username" />
+    <input type="password" id="regPassword" placeholder="Password" />
+    <input type="text" id="regAddress" placeholder="Ethereum Address" />
+    <input type="text" id="regOtp" placeholder="Enter your OTP" />
+    <button onclick="registerUser()">Register</button>
+    <p>Already have an account? <a onclick="showLogin()">Login here</a></p>
+  </div>
+
+  <!-- Voter Section -->
+  <div id="voterSection" class="hidden">
+    <h3>Welcome, <span id="displayName"></span></h3>
+    <h2>Vote for a Candidate</h2>
+    <select id="candidate"></select>
+    <button onclick="voteForCandidate()">Vote</button>
+    <button onclick="logoutToLogin()">Back to Login</button>
+  </div>
+
+  <!-- Admin Section -->
+  <div id="adminSection" class="hidden">
+    <h2>Admin Panel</h2>
+    <button onclick="sendEmailWithResults()">Finalize & Email Results</button>
+    <button onclick="logoutToLogin()">Back to Login</button>
+
+    <h3>Unverified Voters</h3>
+    <div id="unverifiedUsers"></div>
+  </div>
+
+  <script>
+    // Initializing web3 to interact with Ethereum
+    if (typeof web3 !== 'undefined') {
+      web3 = new Web3(web3.currentProvider);
+    } else {
+      web3 = new Web3(Web3.givenProvider || "http://localhost:7545");
+    }
+
+    const adminAddress = "0x511d1F11DeF4b61B78b22dC98EE613e89dfc9Da1";  // Admin Ethereum address
+    const contractAddress = '0xB3DB79F68d0Fe496e26f0c4548489E57616dc795'; // Deployed smart contract address
+
+    // ABI for the voting contract
+    const contractABI = [ 
+      {
+        "inputs": [{ "internalType": "bytes32[]", "name": "candidateNames", "type": "bytes32[]" }],
+        "payable": false,
+        "stateMutability": "nonpayable",
+        "type": "constructor"
+      },
+      {
+        "constant": true,
+        "inputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+        "name": "candidates",
+        "outputs": [{ "internalType": "bytes32", "name": "", "type": "bytes32" }],
+        "payable": false,
+        "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "constant": true,
+        "inputs": [{ "internalType": "address", "name": "", "type": "address" }],
+        "name": "hasVoted",
+        "outputs": [{ "internalType": "bool", "name": "", "type": "bool" }],
+        "payable": false,
+        "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "constant": true,
+        "inputs": [{ "internalType": "bytes32", "name": "", "type": "bytes32" }],
+        "name": "votesReceived",
+        "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+        "payable": false,
+        "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "constant": false,
+        "inputs": [{ "internalType": "bytes32", "name": "candidate", "type": "bytes32" }],
+        "name": "voteForCandidate",
+        "outputs": [],
+        "payable": false,
+        "stateMutability": "nonpayable",
+        "type": "function"
+      },
+      {
+        "constant": true,
+        "inputs": [{ "internalType": "bytes32", "name": "candidate", "type": "bytes32" }],
+        "name": "validCandidate",
+        "outputs": [{ "internalType": "bool", "name": "", "type": "bool" }],
+        "payable": false,
+        "stateMutability": "view",
+        "type": "function"
+      }
+    ];
+
+    const votingContract = new web3.eth.Contract(contractABI, contractAddress);
+
+    // Functions for showing and hiding registration and login pages
+    function showRegister() {
+      document.getElementById("loginPage").classList.add("hidden");
+      document.getElementById("registerPage").classList.remove("hidden");
+    }
+
+    function showLogin() {
+      document.getElementById("registerPage").classList.add("hidden");
+      document.getElementById("loginPage").classList.remove("hidden");
+    }
+
+    function logoutToLogin() {
+      document.getElementById("registerPage").classList.add("hidden");
+      document.getElementById("voterSection").classList.add("hidden");
+      document.getElementById("adminSection").classList.add("hidden");
+      document.getElementById("loginPage").classList.remove("hidden");
+    }
+
+    // Function for registering a user
+    function registerUser() {
+      const username = document.getElementById("regUsername").value;
+      const password = document.getElementById("regPassword").value;
+      const ethAddress = document.getElementById("regAddress").value;
+      const otp = document.getElementById("regOtp").value;
+
+      if (!username || !password || !ethAddress || !otp) {
+        alert("All fields required.");
+        return;
+      }
+      // Local storage used to hold user information
+      if (localStorage.getItem("user_" + username)) {
+        alert("Username already exists. Please choose a different one.");
+        return;
+      }
+
+      const userData = {
+        password,
+        displayName: username,
+        ethAddress,
+        otp,
+        isVerified: false
+      };
+
+      localStorage.setItem("user_" + username, JSON.stringify(userData));
+      alert("Registration successful! Please wait for admin verification.");
+      showLogin();
+    }
+
+    // Function for logging in a user
+    async function loginUser() {
+      const username = document.getElementById("loginUsername").value;
+      const password = document.getElementById("loginPassword").value;
+
+      const storedData = localStorage.getItem("user_" + username);
+      if (!storedData) return alert("User not found.");
+
+      const parsedData = JSON.parse(storedData);
+      if (parsedData.password !== password) return alert("Incorrect password.");
+      if (!parsedData.isVerified) return alert("You are not yet verified by the admin.");
+
+      const accounts = await web3.eth.getAccounts();
+      parsedData.ethAddress = accounts[0];
+      localStorage.setItem("user_" + username, JSON.stringify(parsedData));
+
+      // Check if contract is open
+      try {
+        const testCandidate = await votingContract.methods.candidates(0).call();
+        if (!testCandidate || testCandidate === "0x") throw new Error("Voting not open");
+
+        document.getElementById("loginPage").classList.add("hidden");
+        document.getElementById("voterSection").classList.remove("hidden");
+        document.getElementById("displayName").innerText = username;
+
+        await loadCandidates();
+      } catch (err) {
+        alert("Voting is currently closed. Please try again later.");
+      }
+    }
+
+    // Function for logging in the admin
+    async function loginAdmin() {
+      const inputAddress = document.getElementById('adminAddress').value;
+      if (inputAddress === adminAddress) {
+        alert('Admin login successful');
+        document.getElementById("loginPage").classList.add("hidden");
+        document.getElementById("adminSection").classList.remove("hidden");
+        loadUnverifiedUsers();
+      } else {
+        alert('Incorrect admin address');
+      }
+    }
+
+    // Function for voting for a candidate
+    async function voteForCandidate() {
+      const candidateName = document.getElementById('candidate').value;
+      const username = document.getElementById("loginUsername").value;
+      const parsedData = JSON.parse(localStorage.getItem("user_" + username));
+      const selectedAccount = parsedData.ethAddress;
+
+      try {
+        await votingContract.methods
+          .voteForCandidate(web3.utils.asciiToHex(candidateName))
+          .send({ from: selectedAccount });
+
+        alert(`Vote submitted for ${candidateName}`);
+      } catch (error) {
+        console.error(error);
+        alert('Voting failed: ' + error.message);
+      }
+    }
+
+    // Function for getting list of candidates
+    async function getCandidates() {
+      let i = 0;
+      const candidates = [];
+      while (true) {
+        try {
+          const bytes = await votingContract.methods.candidates(i).call();
+          if (!bytes || bytes === "0x") break;
+          const name = web3.utils.hexToAscii(bytes).replace(/\u0000/g, '');
+          candidates.push(name);
+          i++;
+        } catch (e) {
+          break;
+        }
+      }
+      return candidates;
+    }
+
+    // Function to load candidates into the dropdown
+    async function loadCandidates() {
+      const candidateSelect = document.getElementById('candidate');
+      candidateSelect.innerHTML = "";
+      const candidates = await getCandidates();
+      candidates.forEach(name => {    // For loop to add each candidate to the dropdown 
+        const option = document.createElement("option");
+        option.value = name;
+        option.textContent = name;
+        candidateSelect.appendChild(option);
+      });
+    }
+
+    // Function to load unverified users for admin
+    function loadUnverifiedUsers() {
+      const container = document.getElementById("unverifiedUsers");
+      container.innerHTML = "";
+      Object.keys(localStorage).forEach(key => {
+        if (key.startsWith("user_")) {
+          const data = JSON.parse(localStorage.getItem(key));
+          if (!data.isVerified) {
+            const userElem = document.createElement("div");
+            userElem.innerHTML = `
+              <strong>${key.replace("user_", "")}</strong> - OTP: ${data.otp}
+              <button onclick="verifyUser('${key}')">Verify</button>
+            `;
+            container.appendChild(userElem);
+          }
+        }
+      });
+    }
+
+    // Function for verifying a user
+    function verifyUser(key) {
+      const data = JSON.parse(localStorage.getItem(key));
+      data.isVerified = true;
+      localStorage.setItem(key, JSON.stringify(data));
+      alert(`${key.replace("user_", "")} has been verified.`);
+      loadUnverifiedUsers();
+    }
+
+    // Function for sending email with voting results
+    async function sendEmailWithResults() {
+      const candidateNames = await getCandidates();
+      let resultText = "Final Voting Results:\n\n";
+      for (let name of candidateNames) {
+        const nameBytes = web3.utils.asciiToHex(name);
+        const votes = await votingContract.methods.votesReceived(nameBytes).call();
+        resultText += `${name}: ${votes} vote(s)\n`;
+      }
+
+      const templateParams = {
+        to_email: "willtjames2004@hotmail.com",
+        subject: "Voting Results",
+        message: resultText
+      };
+
+      emailjs.send("service_7gg4md5", "template_luvpw15", templateParams)
+        .then(() => alert("Results emailed successfully!"))
+        .catch(error => alert("Email failed: " + error.text));
+    }
+
+    // Load candidates
+    window.addEventListener('load', async () => {
+      await loadCandidates();
+    });
+  </script>
+</body>
+</html>
